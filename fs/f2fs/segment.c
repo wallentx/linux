@@ -2489,10 +2489,18 @@ static int update_sit_entry_for_release(struct f2fs_sb_info *sbi, struct seg_ent
 				f2fs_test_and_clear_bit(offset + i, se->discard_map))
 			sbi->discard_blks++;
 
-		if (!f2fs_test_bit(offset + i, se->ckpt_valid_map)) {
-			se->ckpt_valid_blocks -= 1;
-			if (__is_large_section(sbi))
-				get_sec_entry(sbi, segno)->ckpt_valid_blocks -= 1;
+		if (se->cur_valid_map != se->ckpt_valid_map) {
+			if (!f2fs_test_bit(offset + i, se->ckpt_valid_map)) {
+				se->ckpt_valid_blocks -= 1;
+				if (__is_large_section(sbi))
+					get_sec_entry(sbi, segno)->ckpt_valid_blocks -= 1;
+			}
+		} else {
+			if (exist) {
+				se->ckpt_valid_blocks -= 1;
+				if (__is_large_section(sbi))
+					get_sec_entry(sbi, segno)->ckpt_valid_blocks -= 1;
+			}
 		}
 	}
 
@@ -2536,14 +2544,23 @@ static int update_sit_entry_for_alloc(struct f2fs_sb_info *sbi, struct seg_entry
 	 * or newly invalidated.
 	 */
 	if (!is_sbi_flag_set(sbi, SBI_CP_DISABLED)) {
-		if (!f2fs_test_and_set_bit(offset, se->ckpt_valid_map)) {
-			se->ckpt_valid_blocks++;
-			if (__is_large_section(sbi))
-				get_sec_entry(sbi, segno)->ckpt_valid_blocks++;
+		if (se->cur_valid_map != se->ckpt_valid_map) {
+			if (!f2fs_test_and_set_bit(offset, se->ckpt_valid_map)) {
+				se->ckpt_valid_blocks++;
+				if (__is_large_section(sbi))
+					get_sec_entry(sbi, segno)->ckpt_valid_blocks++;
+			}
+		} else {
+			if (!exist) {
+				se->ckpt_valid_blocks++;
+				if (__is_large_section(sbi))
+					get_sec_entry(sbi, segno)->ckpt_valid_blocks++;
+			}
 		}
 	}
 
-	if (!f2fs_test_bit(offset, se->ckpt_valid_map)) {
+	if (se->cur_valid_map != se->ckpt_valid_map &&
+			!f2fs_test_bit(offset, se->ckpt_valid_map)) {
 		se->ckpt_valid_blocks += del;
 		if (__is_large_section(sbi))
 			get_sec_entry(sbi, segno)->ckpt_valid_blocks += del;
@@ -4816,6 +4833,7 @@ static int build_sit_info(struct f2fs_sb_info *sbi)
 	char *src_bitmap, *bitmap;
 	unsigned int bitmap_size, main_bitmap_size, sit_bitmap_size;
 	unsigned int discard_map = f2fs_block_unit_discard(sbi) ? 1 : 0;
+	bool share_map = f2fs_lfs_mode(sbi);
 
 	/* allocate memory for SIT information */
 	sit_i = f2fs_kzalloc(sbi, sizeof(struct sit_info), GFP_KERNEL);
@@ -4840,7 +4858,8 @@ static int build_sit_info(struct f2fs_sb_info *sbi)
 #ifdef CONFIG_F2FS_CHECK_FS
 	bitmap_size = MAIN_SEGS(sbi) * SIT_VBLOCK_MAP_SIZE * (3 + discard_map);
 #else
-	bitmap_size = MAIN_SEGS(sbi) * SIT_VBLOCK_MAP_SIZE * (2 + discard_map);
+	bitmap_size = MAIN_SEGS(sbi) * SIT_VBLOCK_MAP_SIZE *
+						((share_map ? 1 : 2) + discard_map);
 #endif
 	sit_i->bitmap = f2fs_kvzalloc(sbi, bitmap_size, GFP_KERNEL);
 	if (!sit_i->bitmap)
@@ -4850,7 +4869,8 @@ static int build_sit_info(struct f2fs_sb_info *sbi)
 
 	for (start = 0; start < MAIN_SEGS(sbi); start++) {
 		sit_i->sentries[start].cur_valid_map = bitmap;
-		bitmap += SIT_VBLOCK_MAP_SIZE;
+		if (!share_map)
+			bitmap += SIT_VBLOCK_MAP_SIZE;
 
 		sit_i->sentries[start].ckpt_valid_map = bitmap;
 		bitmap += SIT_VBLOCK_MAP_SIZE;
@@ -5041,6 +5061,8 @@ init_discard_map_done:
 				get_sec_entry(sbi, start)->valid_blocks +=
 							se->valid_blocks;
 		}
+		invalidate_mapping_pages(META_MAPPING(sbi), sit_i->sit_base_addr + start_blk,
+					sit_i->sit_base_addr + start_blk + readed - 1);
 		start_blk += readed;
 	} while (start_blk < sit_blk_cnt);
 
