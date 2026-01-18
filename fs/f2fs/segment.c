@@ -4833,7 +4833,7 @@ static int build_sit_info(struct f2fs_sb_info *sbi)
 	char *src_bitmap, *bitmap;
 	unsigned int bitmap_size, main_bitmap_size, sit_bitmap_size;
 	unsigned int discard_map = f2fs_block_unit_discard(sbi) ? 1 : 0;
-	bool share_map = f2fs_lfs_mode(sbi);
+	bool share_map = f2fs_lfs_mode(sbi) && f2fs_sb_has_blkzoned(sbi);
 
 	/* allocate memory for SIT information */
 	sit_i = f2fs_kzalloc(sbi, sizeof(struct sit_info), GFP_KERNEL);
