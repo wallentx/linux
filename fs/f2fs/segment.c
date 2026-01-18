@@ -4860,7 +4860,7 @@ static int build_sit_info(struct f2fs_sb_info *sbi)
 	          ((share_map ? 2 : 3) + discard_map);
 #else
 	bitmap_size = MAIN_SEGS(sbi) * SIT_VBLOCK_MAP_SIZE *
-						((share_map ? 1 : 2) + discard_map);
+	          ((share_map ? 1 : 2) + discard_map);
 #endif
 	sit_i->bitmap = f2fs_kvzalloc(sbi, bitmap_size, GFP_KERNEL);
 	if (!sit_i->bitmap)
